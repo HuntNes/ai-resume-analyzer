@@ -3,17 +3,17 @@ import google.generativeai as genai
 import os
 import PyPDF2 as pdf
 from dotenv import load_dotenv
-import json
-from datetime import datetime
 import re
+from datetime import datetime
 
-
+# 1. Ayarları Yükle
 load_dotenv()
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
+# Model Seçimi
 MODEL_NAME = "gemini-2.5-flash"
-HISTORY_FILE = "history.json"
 
+# --- SAYFA AYARLARI ---
 st.set_page_config(
     page_title="Smart Resume Analyzer",
     page_icon="🤖",
@@ -21,6 +21,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# --- CSS STYLES ---
 st.markdown("""
     <style>
     .main { background-color: #f5f5f5; }
@@ -49,6 +50,8 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
+# --- YARDIMCI FONKSİYONLAR ---
+
 def input_pdf_text(uploaded_file):
     reader = pdf.PdfReader(uploaded_file)
     text = ""
@@ -68,18 +71,13 @@ def extract_score(text):
         return match.group(0)
     return "?%"
 
+# --- GÜVENLİ GEÇMİŞ YÖNETİMİ (SESSION STATE) ---
+# Dosya yerine RAM kullanıyoruz. Herkesin geçmişi kendine özel oluyor.
 
-def load_history():
-    if os.path.exists(HISTORY_FILE):
-        with open(HISTORY_FILE, "r", encoding="utf-8") as f:
-            try:
-                return json.load(f)
-            except json.JSONDecodeError:
-                return []
-    return []
+if 'history' not in st.session_state:
+    st.session_state['history'] = []
 
-def save_to_history(company, analysis):
-    history = load_history()
+def save_to_session_history(company, analysis):
     score = extract_score(analysis)
     new_entry = {
         "date": datetime.now().strftime("%Y-%m-%d"),
@@ -87,10 +85,10 @@ def save_to_history(company, analysis):
         "score": score,
         "analysis": analysis
     }
-    history.insert(0, new_entry)
-    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
-        json.dump(history, f, ensure_ascii=False, indent=4)
+    # Listeye ekle (En başa)
+    st.session_state['history'].insert(0, new_entry)
 
+# --- SIDEBAR ---
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/4712/4712035.png", width=120)
     st.title("📂 Control Panel")
@@ -104,23 +102,27 @@ with st.sidebar:
         st.subheader("Your Resume")
         uploaded_file = st.file_uploader("Upload PDF", type="pdf")
         st.markdown("---")
-        submit = st.button("ANALYZE RESUME")
+        submit = st.button("🚀 ANALYZE RESUME")
     
     with tab2:
-        st.subheader("Past Analyses")
-        history_data = load_history()
-        if not history_data:
-            st.info("No history found.")
+        st.subheader("Session History")
+        st.info("⚠️ This history is private to you and will be cleared when you refresh the page.")
+        
+        # Session State'ten oku
+        if not st.session_state['history']:
+            st.write("No analysis yet.")
         else:
-            for item in history_data:
+            for item in st.session_state['history']:
                 header_text = f"{item['date']} | {item['company']} | {item.get('score', '?')}"
                 with st.expander(header_text):
                     st.write(item['analysis'])
 
+# --- ANA EKRAN ---
 st.header("AI-Powered Resume Optimizer")
 st.subheader("Beat the ATS and land your dream job.")
 st.divider()
 
+# --- AI MANTIĞI ---
 
 if submit:
     if uploaded_file is not None and job_description:
@@ -142,24 +144,26 @@ if submit:
 
             Structure your response exactly like this:
 
-            ### Match Score: [Score]%
+            ### 🎯 Match Score: [Score]%
             (One short sentence summary)
 
-            ### Missing Keywords
+            ### ✅ Missing Keywords
             * (List only the most critical missing skills, comma-separated or short list)
 
-            ### Top Strengths
+            ### 🌟 Top Strengths
             * (List max 3 key strengths in short bullet points)
 
-            ### Recommendations
+            ### ⚠️ Recommendations
             * (List max 3 specific, actionable changes. Keep them very short.)
             """
-
+            
             try:
                 response = get_gemini_response(input_prompt)
-                save_to_history(company_name, response)
+                
+                # --- Session State'e Kaydet ---
+                save_to_session_history(company_name, response)
 
-                st.markdown('<div class="success-box">✅ Analysis Saved & Completed!</div>', unsafe_allow_html=True)
+                st.markdown('<div class="success-box">✅ Analysis Completed!</div>', unsafe_allow_html=True)
                 st.markdown(response)
                 
             except Exception as e:
